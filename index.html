@@ -1,0 +1,666 @@
+<!doctype html>
+<html>
+  <head>
+    <title>JS-Only</title>
+  </head>
+
+  <body>
+    <script type="application/javascript">
+      document.body.style.overflow = "hidden";
+
+      // Theme Manager para manejar modo claro / oscuro
+      // Utiliza localstorage para manejar las preferencias del usuario,
+      // cada elemento se comunica con el theme manager para saber
+      // de que color debe pintarse.
+      class ThemeManager {
+        constructor() {
+          // Construir themes, utiliza el colorscheme de Nord para
+          // modo oscuro / claro
+          this.themes = {
+            light: {
+              bgColor: "#ECEFF4",
+              textColor: "#2E3440",
+              messageBg: "#FFFFFF",
+              messageSentBg: "#5E81AC",
+              messageSentText: "#FFFFFF",
+              inputBg: "#FFFFFF",
+              inputBorder: "#D8DEE9",
+              headerBg: "#FFFFFF",
+              headerBorder: "#D8DEE9",
+              shadowColor: "#0000000D",
+              iconColor: "#4c566a",
+              errorColor: "#BF616A",
+            },
+            dark: {
+              bgColor: "#2E3440",
+              textColor: "#D8DEE9",
+              messageBg: "#3B4252",
+              messageSentBg: "#5E81AC",
+              messageSentText: "#FFFFFF",
+              inputBg: "#3B4252",
+              inputBorder: "#4C566A",
+              headerBg: "#3B4252",
+              headerBorder: "#4C566A",
+              shadowColor: "#00000033",
+              iconColor: "#d8dee9",
+              errorColor: "#BF616A",
+            },
+          };
+
+          // Setear tema con el LocalStorage
+          this.currentTheme = this.loadTheme();
+        }
+
+        // Cargar el tema del localStorage
+        loadTheme() {
+          return localStorage.getItem("theme") || "light";
+        }
+
+        // Guardar tema un LocalStorage + la variable local
+        applyTheme(themeName) {
+          this.currentTheme = themeName;
+          localStorage.setItem("theme", themeName);
+        }
+
+        // Toggle del theme
+        toggleTheme() {
+          const newTheme = this.currentTheme == "light" ? "dark" : "light";
+          this.applyTheme(newTheme);
+          return newTheme;
+        }
+
+        // Regresa el estilo para un objeto especifico
+        getStyle(styleName) {
+          return this.themes[this.currentTheme][styleName];
+        }
+      }
+
+      // Clase que se comunica con el chat de la clase
+      class MessageService {
+        // Crea un nuevo servicio con el URL
+        constructor(apiURL) {
+          this.apiURL = apiURL;
+        }
+
+        // Postea un mensaje al endpoint del chat
+        async postMessage(text, user) {
+          const message = { text, user };
+
+          try {
+            const response = await fetch(this.apiURL, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(message),
+            });
+
+            if (!response.ok) {
+              throw new Error(
+                `HTTP ${response.status} - ${response.statusText}`,
+              );
+            }
+
+            const data = await response.json();
+            console.log("Mensaje enviado correctamente:", data);
+            return data;
+          } catch (error) {
+            console.error("Error enviando el mensaje", error);
+            throw error;
+          }
+        }
+
+        // Fetch a los mensajes del API de la clase
+        async fetchMessages() {
+          try {
+            const response = await fetch(this.apiURL);
+
+            if (!response.ok) {
+              throw new Error(
+                `HTTP ${response.status} - ${response.statusText}`,
+              );
+            }
+
+            const data = await response.json();
+            return data;
+          } catch (error) {
+            console.error("Error cargando los mensajes", error);
+            throw error;
+          }
+        }
+      }
+
+      // La clase ChatApp va a ser la 'interfaz' con la que se interactua
+      // para manejar todo el funcionamiento de la aplicacion.
+      class ChatApp {
+        constructor() {
+          // Inicializar el Theme Manager
+          this.themeManager = new ThemeManager();
+
+          // Mensajes / params de las llamadas al API
+          this.messages = [];
+          this.lastRenderedId = -1; // Evita repintar todos los mensajes
+          this.pollInterval = 5000;
+          this.apiURL = "https://chat.calicheoficial.lat/messages";
+
+          this.currentUser = "Tono";
+          this.renderCount = 1;
+
+          this.messageService = new MessageService(this.apiURL);
+
+          // Inicializar el DOM, agrega estilos a los elementos
+          // pero no los que son dependientes del theme manager
+          this.initDOM();
+
+          // Fetch + Render Inicial de los Mensajes
+          this.fetchAndRenderNewMessages();
+
+          // Pintar con los colores del theme, unicamente modifica
+          // las partes dependientes.
+          this.repaint();
+          this.spinAndReset(5);
+          // Inicializar los event listeners
+          this.initEventListeners();
+
+          // Auto refresh cada 5s
+          this.refreshInterval = setInterval(() => {
+            this.fetchAndRenderNewMessages();
+            this.spinAndReset(5);
+          }, 5000);
+        }
+
+        // Inicializa el DOM con todos los elementos base del UI, inicializa
+        // valores que no van a cambiar como layouts etc.
+        initDOM() {
+          // Propiedades del body
+
+          document.body.style.display = "flex";
+          document.body.style.justifyContent = "center";
+          document.body.style.alignItems = "center";
+          document.body.style.height = "100vh";
+
+          // Contenedor del app
+          this.appContainer = document.createElement("main");
+          this.appContainer.style.width = "100%";
+          this.appContainer.style.maxWidth = "800px";
+          this.appContainer.style.height = "90vh";
+          this.appContainer.style.borderRadius = "15px";
+          this.appContainer.style.display = "flex";
+          this.appContainer.style.flexDirection = "column";
+          this.appContainer.style.overflow = "hidden";
+          document.body.appendChild(this.appContainer);
+
+          // Header del chat
+          this.chatHeader = document.createElement("header");
+          this.chatHeader.style.padding = "15px 20px";
+          this.chatHeader.style.display = "flex";
+          this.chatHeader.style.justifyContent = "space-between";
+          this.appContainer.appendChild(this.chatHeader);
+
+          // Info del chat (Nombre + Participantes)
+          this.chatInfo = document.createElement("div");
+          this.chatInfo.style.display = "flex";
+          this.chatInfo.style.alignItems = "center";
+          this.chatInfo.style.gap = "10px";
+          this.chatHeader.appendChild(this.chatInfo);
+
+          // Avatar / Icono del chat
+          this.avatar = document.createElement("img");
+          this.avatar.src =
+            "https://upload.wikimedia.org/wikipedia/commons/6/6a/JavaScript-logo.png";
+          this.avatar.alt = "Avatar";
+          this.avatar.style.height = "40px";
+          this.avatar.style.width = "40px";
+          this.avatar.style.borderRadius = "50%";
+          this.chatInfo.appendChild(this.avatar);
+
+          // Contenedor para detalles (Nombre + Participantes)
+          this.chatDetails = document.createElement("div");
+          this.chatDetails.style.display = "flex";
+          this.chatDetails.style.flexDirection = "column";
+          this.chatDetails.style.justifyContent = "center";
+          this.chatDetails.style.height = "40px";
+          this.chatInfo.appendChild(this.chatDetails);
+
+          // Nombre del chat
+          this.chatName = document.createElement("h3");
+          this.chatName.textContent = "Web - Seccion 20";
+          this.chatName.style.fontSize = "1rem";
+          this.chatName.style.margin = "0";
+          this.chatName.style.padding = "0";
+          this.chatName.style.fontFamily = `"Segoe UI", Tahoma, Geneva, Verdana, sans-serif`;
+          this.chatName.style.fontWeight = "600";
+          this.chatDetails.appendChild(this.chatName);
+
+          // Miembros en linea
+          this.onlineMembers = document.createElement("p");
+          this.onlineMembers.textContent = "Probablemente 0 en linea";
+          this.onlineMembers.style.fontSize = "0.8rem";
+          this.onlineMembers.style.margin = "0";
+          this.onlineMembers.style.padding = "0";
+          this.onlineMembers.style.fontFamily = `"Segoe UI", Tahoma, Geneva, Verdana, sans-serif`;
+          this.chatDetails.appendChild(this.onlineMembers);
+
+          // Boton de modo oscuro
+          this.darkModeButton = document.createElement("button");
+          this.darkModeButton.style.height = "40px";
+          this.darkModeButton.style.outline = "none";
+          this.darkModeButton.style.background = "none";
+          this.darkModeButton.style.border = "none";
+          this.darkModeButton.style.padding = "0";
+          this.darkModeButton.style.width = "40px";
+          this.darkModeButton.style.borderRadius = "50%";
+          this.darkModeButton.style.display = "flex";
+          this.darkModeButton.style.alignItems = "center";
+          this.darkModeButton.style.justifyContent = "center";
+          this.chatHeader.appendChild(this.darkModeButton);
+
+          // Contenedor para los mensajes
+          this.messageContainer = document.createElement("section");
+          this.messageContainer.style.flex = "1";
+          this.messageContainer.style.display = "flex";
+          this.messageContainer.style.padding = "20px";
+          this.messageContainer.style.overflowY = "auto";
+          this.messageContainer.style.overflowX = "hidden";
+          this.messageContainer.style.flexDirection = "column";
+          this.messageContainer.style.scrollbarWidth = "none";
+          this.messageContainer.style.msOverflowStyle = "none";
+          this.appContainer.appendChild(this.messageContainer);
+
+          // Container para el input
+          this.inputContainer = document.createElement("footer");
+          this.inputContainer.style.padding = "15px";
+          this.inputContainer.style.display = "flex";
+          this.inputContainer.style.alignItems = "center";
+          this.inputContainer.style.gap = "10px";
+          this.appContainer.appendChild(this.inputContainer);
+
+          // Caja de texto para el inpupt
+          this.inputBox = document.createElement("input");
+          this.inputBox.type = "text";
+          this.inputBox.placeholder = "Escribe tu mensaje...";
+          this.inputBox.style.flex = "1";
+          this.inputBox.style.outline = "none";
+          this.inputBox.style.padding = "12px 15px";
+          this.inputBox.style.borderRadius = "20px";
+          this.inputBox.style.fontSize = "0.9rem";
+          this.inputContainer.appendChild(this.inputBox);
+
+          // Boton de enviar
+          this.sendButton = document.createElement("button");
+          this.sendButton.style.color = "white";
+          this.sendButton.style.border = "none";
+          this.sendButton.style.outline = "none";
+          this.sendButton.style.width = "40px";
+          this.sendButton.style.height = "40px";
+          this.sendButton.style.borderRadius = "50%";
+          this.sendButton.style.display = "flex";
+          this.sendButton.style.justifyContent = "center";
+          this.sendButton.style.alignItems = "center";
+          this.inputContainer.appendChild(this.sendButton);
+
+          // Re-render de los mensajes (aplica colores correctos)
+          this.renderMessages(this.messages);
+        }
+
+        // Inicia los event listeners, lo puse por separado solo por claridad
+        initEventListeners() {
+          // Crea un fondo cuando se hace hover al boton de modo oscuro
+          this.darkModeButton.addEventListener("mouseenter", () => {
+            this.darkModeButton.style.backgroundColor =
+              this.themeManager.getStyle("headerBorder");
+          });
+
+          // Quita el fondo luego de dejar de hacer hover
+          this.darkModeButton.addEventListener("mouseleave", () => {
+            this.darkModeButton.style.backgroundColor = "#00000000";
+          });
+
+          // Cambia de tema al hacer click en el boton de modo oscuro
+          this.darkModeButton.addEventListener("click", () => {
+            this.themeManager.toggleTheme();
+            this.repaint();
+          });
+
+          // Envia un mensaje al presionar el boton de enviar
+          this.sendButton.addEventListener("click", async () => {
+            const msgTxt = this.inputBox.value;
+            this.inputBox.value = "";
+            try {
+              const messageData = await this.messageService.postMessage(
+                msgTxt,
+                this.currentUser,
+              );
+
+              const messages = [
+                {
+                  id: messageData.id,
+                  user: this.currentUser,
+                  text: msgTxt,
+                },
+              ];
+
+              this.renderMessages(messages);
+              this.messages.push(...messages);
+            } catch (error) {
+              console.error("Error enviando mensaje", error);
+            }
+          });
+
+          // Cambia el borde del inputbox
+          this.inputBox.addEventListener("focus", () => {
+            this.inputBox.style.border =
+              "1px solid" + this.themeManager.getStyle("messageSentBg");
+          });
+
+          // Quita el borde del inputbox
+          this.inputBox.addEventListener("blur", () => {
+            this.inputBox.style.border =
+              "1px solid " + this.themeManager.getStyle("inputBorder");
+          });
+
+          // Manda mensaje con enter
+          this.inputBox.addEventListener("keydown", async (e) => {
+            // Make this function async
+            if (e.key === "Enter") {
+              e.preventDefault();
+              const msgTxt = this.inputBox.value;
+              this.inputBox.value = "";
+
+              try {
+                const messageData = await this.messageService.postMessage(
+                  msgTxt,
+                  this.currentUser,
+                );
+
+                const messages = [
+                  {
+                    id: messageData.id,
+                    user: this.currentUser,
+                    text: msgTxt,
+                  },
+                ];
+                this.renderMessages(messages);
+                this.messages.push(...messages);
+              } catch (error) {
+                console.error("Error enviando mensaje", error);
+              }
+              this.inputBox.value = "";
+            }
+          });
+
+          // Limitar input a 140 y cambiar color del outline
+          this.inputBox.addEventListener("input", () => {
+            const maxLength = 140;
+            const currentLength = this.inputBox.value.length;
+            if (currentLength > maxLength) {
+              console.log("max");
+              this.inputBox.value = this.inputBox.value.slice(0, maxLength);
+              this.inputBox.style.border =
+                "1px solid " + this.themeManager.getStyle("errorColor");
+            } else {
+              this.inputBox.style.border =
+                "1px solid " + this.themeManager.getStyle("messageSentBg");
+            }
+          });
+        }
+
+        // Inicializa el theme, aplica propiedades de estilo y maneja los colores
+        repaint() {
+          document.body.style.backgroundColor =
+            this.themeManager.getStyle("bgColor");
+          // Colores del appContainer
+          this.appContainer.style.boxShadow =
+            "0 10px 30px " + this.themeManager.getStyle("shadowColor");
+          this.appContainer.style.backgroundColor =
+            this.themeManager.getStyle("bgColor");
+
+          // Colores del header del chat
+          this.chatHeader.style.backgroundColor =
+            this.themeManager.getStyle("headerBg");
+          this.chatHeader.style.borderBottom =
+            "1px solid " + this.themeManager.getStyle("headerBorder");
+
+          // Colores del texto
+          this.chatName.style.color = this.themeManager.getStyle("textColor");
+          this.onlineMembers.style.color =
+            this.themeManager.getStyle("iconColor");
+
+          // Icono de modo oscuro
+          this.darkModeButton.style.color =
+            this.themeManager.getStyle("iconColor");
+
+          // Remover SVG del modo oscuro, posiblemente el mayor
+          // band-aid fix de mi vida pero jala
+          while (this.darkModeButton.firstChild) {
+            this.darkModeButton.removeChild(this.darkModeButton.firstChild);
+          }
+
+          // SVG del modo oscuro
+          fetch("assets/darkmode.svg")
+            .then((res) => res.text())
+            .then((svgText) => {
+              const temp = document.createElement("div");
+              temp.innerHTML = svgText.trim();
+              const svg = temp.querySelector("svg");
+
+              const paths = svg.querySelectorAll(
+                "path, rect, circle, line, polygon",
+              );
+
+              paths.forEach((path) => {
+                path.setAttribute("fill", "currentColor");
+              });
+
+              svg.setAttribute("fill", "pink");
+              svg.style.width = "75%";
+              svg.style.height = "75%";
+
+              this.darkModeButton.appendChild(svg);
+            });
+
+          // Contenedor de mensajes
+          this.messageContainer.backgroundColor =
+            this.themeManager.getStyle("backgroundColor");
+
+          // Contenedor del input (barra de abajo)
+          this.inputContainer.style.borderTop =
+            "1px " + this.themeManager.getStyle("headerBorder");
+          this.inputContainer.style.backgroundColor =
+            this.themeManager.getStyle("headerBg");
+
+          // Caja de texto
+          this.inputBox.style.border =
+            "1px solid " + this.themeManager.getStyle("inputBorder");
+          this.inputBox.style.backgroundColor =
+            this.themeManager.getStyle("inputBg");
+          this.inputBox.style.color = this.themeManager.getStyle("textColor");
+
+          // Boton de enviado
+          this.sendButton.style.backgroundColor =
+            this.themeManager.getStyle("messageSentBg");
+
+          // Remover SVG del modo claro antes de crear otro,
+          // posiblemente el mayor band-aid fix de mi vida pero jala
+          while (this.sendButton.firstChild) {
+            this.sendButton.removeChild(this.sendButton.firstChild);
+          }
+
+          // SVG del boton de enviado
+          fetch("assets/send.svg")
+            .then((res) => res.text())
+            .then((svgText) => {
+              const temp = document.createElement("div");
+              temp.innerHTML = svgText.trim();
+              const svg = temp.querySelector("svg");
+
+              const paths = svg.querySelectorAll(
+                "path, rect, circle, line, polygon",
+              );
+
+              paths.forEach((path) => {
+                path.setAttribute("fill", "currentColor");
+              });
+
+              svg.style.width = "75%";
+              svg.style.height = "75%";
+              svg.style.transform = "rotate(90deg)";
+
+              this.sendButton.appendChild(svg);
+            });
+
+          // Repintar los mensajes
+          const children = this.messageContainer.children;
+          for (const message of children) {
+            if (message.children.length > 1) {
+              const sender = message.children[0];
+              const text = message.children[1];
+              sender.style.color = this.themeManager.getStyle("textColor");
+              text.style.color = this.themeManager.getStyle("textColor");
+              message.style.backgroundColor =
+                this.themeManager.getStyle("messageBg");
+              message.style.boxShadow =
+                "0 2px 5px " + this.themeManager.getStyle("shadowColor");
+            } else {
+              message.style.boxShadow =
+                "-5px 2px 5px " + this.themeManager.getStyle("shadowColor");
+            }
+          }
+        }
+
+        // Busca mensajes nuevos, los filtra y los renderiza
+        async fetchAndRenderNewMessages() {
+          const newMessages = await this.messageService.fetchMessages();
+
+          const filtered = newMessages.filter(
+            (msg) =>
+              msg.user &&
+              msg.text &&
+              !this.messages.some((existingMsg) => existingMsg.id === msg.id),
+          );
+          if (filtered.length > 0) {
+            this.renderMessages(filtered);
+            this.messages.push(...filtered);
+          }
+        }
+
+        // Renderiza los mensajes, es un desastre absoluto lo que esta
+        // abajo pero funciona :)
+        renderMessages(messages) {
+          if (!messages || messages.length === 0) return;
+
+          // Deconstruccion de objetos para los mensajes
+          messages.forEach(({ id, text, user }) => {
+            // Crea el mensaje con estilos compartidos por mensajes
+            // recibidos / enviados
+            const message = document.createElement("div");
+            message.style.maxWidth = "80%";
+            message.style.marginBottom = "15px";
+            message.style.padding = "10px 15px";
+            message.style.borderRadius = "15px";
+
+            // Crea el elemento de contenido con estilos compartidos
+            const messageContent = document.createElement("div");
+            messageContent.style.fontFamily = `"Segoe UI", Tahoma, Geneva, Verdana, sans-serif`;
+            messageContent.style.lineHeight = "1.4";
+            messageContent.style.minHeight = "1.26rem";
+            messageContent.style.fontSize = "0.9rem";
+            messageContent.textContent = text;
+            messageContent.style.overflowWrap = "break-word";
+            messageContent.style.workBreak = "break-word";
+            messageContent.style.whiteSpace = "pre-wrap";
+
+            // Regex para detectar imagenes (chat el goat de regex)
+            const imageUrlPattern =
+              /(https?:\/\/\S+\.(?:png|jpe?g|gif|webp|bmp|svg))/gi;
+            const imageUrls = text.match(imageUrlPattern);
+
+            // Detecta URL's de imagenes, los estiliza y los pone en el chat
+            if (imageUrls) {
+              imageUrls.forEach((url) => {
+                const img = document.createElement("img");
+                img.src = url;
+                img.loading = "lazy";
+                img.style.maxWidth = "100%";
+                img.style.height = "auto";
+                img.style.marginTop = "8px";
+                img.style.marginBottom = "8px";
+                img.style.borderRadius = "10px";
+                img.style.display = "block";
+                img.alt = "Imagen";
+
+                messageContent.appendChild(img);
+              });
+            }
+            messageContent.style.wordBreak = "normal";
+            message.style.width = "fit-content";
+
+            // Separa entre mensajes enviados / recibidos y aplica los estilos
+            if (user !== this.currentUser) {
+              const messageSender = document.createElement("div");
+              messageSender.style.fontSize = "0.8rem";
+              messageSender.textContent = user;
+              messageSender.style.fontWeight = "600";
+              messageSender.style.fontFamily = `"Segoe UI", Tahoma, Geneva, Verdana, sans-serif`;
+              messageSender.style.color =
+                this.themeManager.getStyle("textColor");
+
+              message.style.alignSelf = "flex-start";
+              message.style.backgroundColor =
+                this.themeManager.getStyle("messageBg");
+              message.style.borderBottomLeftRadius = "5px";
+              messageContent.style.color =
+                this.themeManager.getStyle("textColor");
+              message.style.boxShadow =
+                "0 2px 5px " + this.themeManager.getStyle("shadowColor");
+              message.appendChild(messageSender);
+            } else {
+              message.style.alignSelf = "flex-end";
+              message.style.backgroundColor =
+                this.themeManager.getStyle("messageSentBg");
+              messageContent.style.color =
+                this.themeManager.getStyle("messageSentText");
+              message.style.borderBottomRightRadius = "5px";
+              message.style.boxShadow =
+                "-5px 2px 5px " + this.themeManager.getStyle("shadowColor");
+            }
+            message.appendChild(messageContent);
+
+            this.messageContainer.appendChild(message);
+          });
+
+          // El primer render scrollea hasta abajo, luego no se scrollea
+          if (this.renderCount > 0) {
+            this.messageContainer.scrollTop =
+              this.messageContainer.scrollHeight;
+            this.renderCount--;
+          }
+        }
+
+        // Le da vueltas al logo del chat
+        spinAndReset(speed) {
+          let rotation = 0;
+
+          const spin = () => {
+            rotation += speed;
+            this.avatar.style.transform = `rotate(${rotation}deg)`;
+
+            if (rotation < 360) {
+              requestAnimationFrame(spin);
+            } else {
+              resetAvatar();
+            }
+          };
+
+          const resetAvatar = () => {
+            this.avatar.style.transform = "rotate(0deg)";
+          };
+
+          spin();
+        }
+      }
+
+      chatApp = new ChatApp();
+    </script>
+  </body>
+</html>
