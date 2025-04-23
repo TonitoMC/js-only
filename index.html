@@ -325,6 +325,9 @@
           // Envia un mensaje al presionar el boton de enviar
           this.sendButton.addEventListener("click", async () => {
             const msgTxt = this.inputBox.value;
+            if (msgTxt === "") {
+              return;
+            }
             this.inputBox.value = "";
             try {
               const messageData = await this.messageService.postMessage(
@@ -365,6 +368,9 @@
             if (e.key === "Enter") {
               e.preventDefault();
               const msgTxt = this.inputBox.value;
+              if (msgTxt === "") {
+                return;
+              }
               this.inputBox.value = "";
 
               try {
