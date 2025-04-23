@@ -329,6 +329,7 @@
           this.darkModeButton.addEventListener("click", () => {
             this.themeManager.toggleTheme();
             this.repaint();
+            this.darkModeButton.style.backgroudnColor = "#00000000";
           });
 
           // Envia un mensaje al presionar el boton de enviar
