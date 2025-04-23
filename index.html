@@ -321,6 +321,10 @@
             this.darkModeButton.style.backgroundColor = "#00000000";
           });
 
+          this.darkModeButton.addEventListener("touchend", () => {
+            this.darkModeButton.style.backgroundColor = "#00000000";
+          });
+
           // Cambia de tema al hacer click en el boton de modo oscuro
           this.darkModeButton.addEventListener("click", () => {
             this.themeManager.toggleTheme();
