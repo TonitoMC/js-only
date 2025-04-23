@@ -6,6 +6,10 @@
 
   <body>
     <script type="application/javascript">
+      const meta = document.createElement("meta");
+      meta.name = "viewport";
+      meta.content = "width=device-width, initial-scale=1, maximum-scale=1";
+      document.head.appendChild(meta);
       document.body.style.overflow = "hidden";
 
       // Theme Manager para manejar modo claro / oscuro
