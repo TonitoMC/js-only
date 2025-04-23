@@ -9,7 +9,7 @@
       const meta = document.createElement("meta");
       meta.name = "viewport";
       meta.content =
-        "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no";
+        "width=device-width, minimum-scale=1, initial-scale=1, maximum-scale=1, user-scalable=no";
       document.head.appendChild(meta);
       document.body.style.overflow = "hidden";
 
@@ -188,7 +188,7 @@
           this.appContainer = document.createElement("main");
           this.appContainer.style.width = "100%";
           this.appContainer.style.maxWidth = "800px";
-          this.appContainer.style.height = "90vh";
+          this.appContainer.style.height = "90dvh";
           this.appContainer.style.borderRadius = "15px";
           this.appContainer.style.display = "flex";
           this.appContainer.style.flexDirection = "column";
